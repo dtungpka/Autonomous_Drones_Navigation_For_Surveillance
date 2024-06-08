@@ -7,7 +7,7 @@ import numpy as np
 class DroneEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-    def __init__(self, render_mode=None, size=100,drones=1,n_targets=1,obstacles=0,battery=100,seed=None,options=None):
+    def __init__(self, render_mode=None, size=100,drones=1,n_targets=1,obstacles=0,battery=10,seed=None,options=None):
         self.size = size  # The size of the square grid
         self.window_size = 512  # The size of the PyGame window
         self.n_drones = drones
@@ -158,23 +158,78 @@ class DroneEnv(gym.Env):
                 camera[self.obstacles["obstacle_"+str(i)] - top_left] = -1
         self.drones["drone_camera_"+str(drone)] = camera
         return camera
+    def _move_drone(self,drone:int,action:int):
+        is_dead = False
+        #Reward for moving drone
+        reward = 0
+        # Map the action (element of {0,1,2,3}) to the direction we walk in
+        #if action is 4,5, then change elevation
+        if action == 4:
+            self.drones["drone_elevation_"+str(drone)] += 1
+        elif action == 5:
+            self.drones["drone_elevation_"+str(drone)] -= 1
+        elif action == 6:
+            pass
+        else:
+            direction = self._action_to_direction[action]
+            self.drones["drone_position_"+str(drone)] = np.clip(
+                self.drones["drone_position_"+str(drone)] + direction, 0, self.size - 1
+            )
+        self.drones["drone_battery_"+str(drone)] -= 1
+        if self.drones["drone_battery_"+str(drone)] <= 0:
+            is_dead = True
+            #reward for dying
+            reward = -1
+        self.drones["drone_elevation_"+str(drone)] = np.clip(self.drones["drone_elevation_"+str(drone)],0,2)
+
+        #if drone is at base station, recharge battery by 5
+        if np.all(self.drones["drone_position_"+str(drone)] == self.base_station) and self.drones["drone_battery_"+str(drone)] < self.max_battery and not is_dead:
+            self.drones["drone_battery_"+str(drone)] = np.clip(self.drones["drone_battery_"+str(drone)] + 5,0,self.max_battery)
+            #reward for recharging
+            reward = .1
+        return is_dead,reward
+    def _is_target_waypoint_valid(self,waypoint:np.array):
+        #check if waypoint is within grid and not on obstacle
+        if np.all(waypoint >= 2) and np.all(waypoint < self.size):
+            for i in range(self.obstacles):
+                if np.all(waypoint == self.obstacles["obstacle_"+str(i)]):
+                    return False
+            return True
+        return False
+    def _move_target(self,target:int):
+        # Randomly move the target, but:
+        # 1. The target must stay within the grid
+        # 2. The target must not move onto the obstacle
+        # 3. The target can go in one direction with 0,1,2 steps (speed)
+
+        # Randomly choose a direction to move in
+        new_position = self.targets["target_"+str(target)].copy()
+        while True:
+            direction = self.np_random.randint(4)
+            steps = self.np_random.randint(3)
+            new_position += self._action_to_direction[direction] * steps
+            if self._is_target_waypoint_valid(new_position):
+                break
+        self.targets["target_"+str(target)] = new_position
 
 
 
     def step(self, action):
         directions = self._actions_to_directions(action)
+        self.targets_found = []
+        total_reward = 0
+        terminated = False
+        for i in range(self.n_drones):
+            is_dead,_reward = self._move_drone(i,action[i])
+            self._update_camera(i)
+            total_reward += _reward
+            if is_dead:
+                terminated = True
+                break
+        total_reward += len(self.targets_found)
+        for i in range(self.n_targets):
+            self._move_target(i)
 
-
-
-        # Map the action (element of {0,1,2,3}) to the direction we walk in
-        direction = self._action_to_direction[action]
-        # We use `np.clip` to make sure we don't leave the grid
-        self._agent_location = np.clip(
-            self._agent_location + direction, 0, self.size - 1
-        )
-        # An episode is done iff the agent has reached the target
-        terminated = np.array_equal(self._agent_location, self._target_location)
-        reward = 1 if terminated else 0  # Binary sparse rewards
         observation = self._get_obs()
         info = self._get_info()
 
