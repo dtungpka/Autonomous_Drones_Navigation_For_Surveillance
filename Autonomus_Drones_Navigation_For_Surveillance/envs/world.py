@@ -5,14 +5,14 @@ import numpy as np
 
 
 class DroneEnv(gym.Env):
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 15}
 
-    def __init__(self, render_mode=None, size=100,drones=1,n_targets=1,obstacles=0,battery=10,seed=None,options=None):
+    def __init__(self, render_mode=None, size=100,drones=1,targets=1,obstacles=0,battery=100,seed=None,options=None):
         self.size = size  # The size of the square grid
-        self.window_size = 512  # The size of the PyGame window
+        self.window_size = 1024  # The size of the PyGame window
         self.n_drones = drones
-        self.n_targets = n_targets
-        self.obstacles = obstacles
+        self.n_targets = targets
+        self.n_obstacles = obstacles
         self.max_battery = battery
         if seed is not None:
             self.seed(seed)
@@ -25,7 +25,7 @@ class DroneEnv(gym.Env):
             observation_space_drones["drone_battery_"+str(i)] = spaces.Box(0, battery, shape=(1,), dtype=int)
             #drone elevation
             observation_space_drones["drone_elevation_"+str(i)] = spaces.Box(0, 2, shape=(1,), dtype=int) #view 0: 3x3, view 1: 5x5, view 2: 7x7
-            observation_space_drones["drone_camera_"+str(i)] = spaces.MultiBinary([7,7]) #7x7 camera
+            observation_space_drones["drone_camera_"+str(i)] = spaces.Box(-1, targets, shape=(7,7), dtype=int)
         observation_space["drones"] = spaces.Dict(observation_space_drones)
         
         #Agent should not be able to see the target's location
@@ -35,8 +35,8 @@ class DroneEnv(gym.Env):
         #observation_space["n_targets"] = spaces.Dict(observation_space_target)
 
         #TBA
-        for i in range(self.obstacles):
-            observation_space["obstacle_"+str(i)] = spaces.Box(1, size - 1, shape=(2,), dtype=int)
+        #for i in range(self.n_obstacles):
+            #observation_space["obstacle_"+str(i)] = spaces.Box(1, size - 1, shape=(2,), dtype=int)
         
         #Base station at 0,0
         observation_space["base_station"] = spaces.Box(0, size - 1, shape=(2,), dtype=int)
@@ -49,7 +49,7 @@ class DroneEnv(gym.Env):
 
         # Actions are discrete values in {0,1,2,3}, where 0 corresponds to "right", 1 to "up" etc. 5,6 are elevation up and down
         #with number of drones
-        self.action_space = spaces.MultiDiscrete([7]*self.drones)
+        self.action_space = spaces.MultiDiscrete([7]*self.n_drones)
 
         """
         The following dictionary maps abstract actions from `self.action_space` to 
@@ -76,25 +76,43 @@ class DroneEnv(gym.Env):
         human-mode. They will remain `None` until human-mode is used for the
         first time.
         """
+
         self.window = None
         self.clock = None
 
     def _get_obs(self):
         observation = {
+            "base_station": self.base_station,
             "drones": self.drones,
             #"n_targets": self.n_targets,
-            "obstacles": self.obstacles,
-            "base_station": self.base_station
+            #"obstacles": self.obstacles, TBA
+            
         }
-        return spaces.unflatten(self.observation_space, observation)
+        #convert to a single array
+        return observation
+    def to_array(self,observation_json=None):
+        if observation_json is None:
+            observation_json = self._get_obs()
+        observation = np.array([])
+        for key in observation_json:
+            if key == "drones":
+                for drone_key in observation_json[key]:
+                    observation = np.concatenate((observation, observation_json[key][drone_key]),axis=None)
+            else:
+                observation = np.concatenate((observation, observation_json[key]),axis=None)
+
+        return observation
+
         
 
 
     def _get_info(self):
         return {
-            # "distance": np.linalg.norm(
-            #     self._agent_location - self._target_location, ord=1
-            # )
+            "base_station": self.base_station,
+            "drones": self.drones,
+            #"n_targets": self.n_targets,
+            #"obstacles": self.obstacles, TBA
+            
         }
 
     def reset(self, seed=None, options=None):
@@ -105,16 +123,16 @@ class DroneEnv(gym.Env):
         for i in range(self.n_drones):
             #always start at base station
             self.drones["drone_position_"+str(i)] = np.array([0,0])
-            self.drones["drone_battery_"+str(i)] = self.max_battery
-            self.drones["drone_elevation_"+str(i)] = 0
+            self.drones["drone_battery_"+str(i)] = np.array(self.max_battery)
+            self.drones["drone_elevation_"+str(i)] = np.array(0)
             self.drones["drone_camera_"+str(i)] = np.zeros((7,7),dtype=int)
         
         self.targets = {}
-        for i in range(self.targets):
+        for i in range(self.n_targets):
             self.targets["target_"+str(i)] = self.np_random.integers(1, self.size-1, size=2, dtype=int)
 
         self.obstacles = {}
-        for i in range(self.obstacles):
+        for i in range(self.n_obstacles):
             self.obstacles["obstacle_"+str(i)] = self.np_random.integers(1, self.size-1, size=2, dtype=int)
 
         self.base_station = np.array([0,0])
@@ -146,22 +164,25 @@ class DroneEnv(gym.Env):
         for i in range(self.n_targets):
             if np.all(top_left <= self.targets["target_"+str(i)]) and np.all(self.targets["target_"+str(i)] <= bottom_right):
                 #if probability of finding target is less than 1, check if found
-                if self.np_random.rand() > found_prob:
+                if self.np_random.random() > found_prob:
                     continue
-                camera[self.targets["target_"+str(i)] - top_left] = i + 1
-                if i not in self.targets_found:
-                    self.targets_found.append(i)
+                else:
+                    pos = self.targets["target_"+str(i)] - top_left
+                    camera[pos[1],pos[0]] = i + 1
+                    if i not in self.targets_found:
+                        self.targets_found.append(i)
                     #Remember to reset target found each step
         #for each obstacle, if in view, add to camera as -1 in their position
-        for i in range(self.obstacles):
+        for i in range(self.n_obstacles):
             if np.all(top_left <= self.obstacles["obstacle_"+str(i)]) and np.all(self.obstacles["obstacle_"+str(i)] <= bottom_right):
-                camera[self.obstacles["obstacle_"+str(i)] - top_left] = -1
+                pos = self.obstacles["obstacle_"+str(i)] - top_left
+                camera[pos[1],pos[0]] = -1
         self.drones["drone_camera_"+str(drone)] = camera
         return camera
     def _move_drone(self,drone:int,action:int):
         is_dead = False
         #Reward for moving drone
-        reward = 0
+        reward = -0.01
         # Map the action (element of {0,1,2,3}) to the direction we walk in
         #if action is 4,5, then change elevation
         if action == 4:
@@ -175,7 +196,8 @@ class DroneEnv(gym.Env):
             self.drones["drone_position_"+str(drone)] = np.clip(
                 self.drones["drone_position_"+str(drone)] + direction, 0, self.size - 1
             )
-        self.drones["drone_battery_"+str(drone)] -= 1
+        if not np.all(self.drones["drone_position_"+str(drone)] == self.base_station):
+            self.drones["drone_battery_"+str(drone)] -= 1
         if self.drones["drone_battery_"+str(drone)] <= 0:
             is_dead = True
             #reward for dying
@@ -184,14 +206,14 @@ class DroneEnv(gym.Env):
 
         #if drone is at base station, recharge battery by 5
         if np.all(self.drones["drone_position_"+str(drone)] == self.base_station) and self.drones["drone_battery_"+str(drone)] < self.max_battery and not is_dead:
-            self.drones["drone_battery_"+str(drone)] = np.clip(self.drones["drone_battery_"+str(drone)] + 5,0,self.max_battery)
+            self.drones["drone_battery_"+str(drone)] = np.clip(self.drones["drone_battery_"+str(drone)] + (self.max_battery//20),0,self.max_battery)
             #reward for recharging
             reward = .1
         return is_dead,reward
     def _is_target_waypoint_valid(self,waypoint:np.array):
         #check if waypoint is within grid and not on obstacle
         if np.all(waypoint >= 2) and np.all(waypoint < self.size):
-            for i in range(self.obstacles):
+            for i in range(self.n_obstacles):
                 if np.all(waypoint == self.obstacles["obstacle_"+str(i)]):
                     return False
             return True
@@ -203,13 +225,15 @@ class DroneEnv(gym.Env):
         # 3. The target can go in one direction with 0,1,2 steps (speed)
 
         # Randomly choose a direction to move in
-        new_position = self.targets["target_"+str(target)].copy()
+        
         while True:
-            direction = self.np_random.randint(4)
-            steps = self.np_random.randint(3)
+            new_position = self.targets["target_"+str(target)].copy()
+            direction = self.np_random.integers(0,4)
+            steps = self.np_random.integers(0,3)
             new_position += self._action_to_direction[direction] * steps
             if self._is_target_waypoint_valid(new_position):
                 break
+            #print(f"Invalid target waypoint {new_position}")
         self.targets["target_"+str(target)] = new_position
 
 
@@ -236,7 +260,7 @@ class DroneEnv(gym.Env):
         if self.render_mode == "human":
             self._render_frame()
 
-        return observation, reward, terminated, False, info
+        return observation, total_reward, terminated, False, info
 
     def render(self):
         if self.render_mode == "rgb_array":
@@ -255,40 +279,96 @@ class DroneEnv(gym.Env):
         pix_square_size = (
             self.window_size / self.size
         )  # The size of a single grid square in pixels
-
-        # First we draw the target
-        pygame.draw.rect(
-            canvas,
-            (255, 0, 0),
-            pygame.Rect(
-                pix_square_size * self._target_location,
-                (pix_square_size, pix_square_size),
-            ),
-        )
-        # Now we draw the agent
-        pygame.draw.circle(
-            canvas,
-            (0, 0, 255),
-            (self._agent_location + 0.5) * pix_square_size,
-            pix_square_size / 3,
-        )
-
-        # Finally, add some gridlines
+         # add some gridlines
         for x in range(self.size + 1):
             pygame.draw.line(
                 canvas,
                 0,
                 (0, pix_square_size * x),
                 (self.window_size, pix_square_size * x),
-                width=3,
+                width=1,
             )
             pygame.draw.line(
                 canvas,
                 0,
                 (pix_square_size * x, 0),
                 (pix_square_size * x, self.window_size),
+                width=1,
+            )
+        # Draw base station with green hollow square
+        pygame.draw.rect(
+            canvas,
+            (0, 255, 0),
+            pygame.Rect(
+                0,
+                0,
+                pix_square_size,
+                pix_square_size,
+            ),
+            width=3,
+        )
+
+        # Draw targets with red circles
+        for i in range(self.n_targets):
+            #gray if not found, red if found
+            clr = (255, 0, 0) if i in self.targets_found else (100, 100, 100)
+        
+            pygame.draw.circle(
+                canvas,
+                clr,
+                (self.targets["target_"+str(i)] + 0.5) * pix_square_size,
+                pix_square_size / 3,
+            )
+        
+        # Draw obstacles with black squares
+        for i in range(self.n_obstacles):
+            pygame.draw.rect(
+                canvas,
+                (0, 0, 0),
+                pygame.Rect(
+                    self.obstacles["obstacle_"+str(i)] * pix_square_size,
+                    (pix_square_size, pix_square_size),
+                ),
+            )
+        
+        # Draw drones with hollow blue circles with ID number in middle
+        for i in range(self.n_drones):
+            battery_percentage = self.drones["drone_battery_"+str(i)] / self.max_battery
+            #gradually change color from blue to red as battery decreases
+            clr = ( 255 * (1 - battery_percentage), 255 * battery_percentage,0)
+            pygame.draw.circle(
+                canvas,
+                (0,100,255),
+                (self.drones["drone_position_"+str(i)] + 0.5) * pix_square_size,
+                pix_square_size / 3,
                 width=3,
             )
+            font = pygame.font.Font(None, 36)
+            text = font.render(str(i), True, clr)
+            text_rect = text.get_rect(center=(self.drones["drone_position_"+str(i)] + 0.5) * pix_square_size)
+            canvas.blit(text, text_rect)
+
+            elevation = self.drones["drone_elevation_"+str(i)]
+            #ensure the top left and bottom right of the view is within grid
+            top_left = self.drones["drone_position_"+str(i)] - np.array([elevation + 1, elevation + 1])
+            bottom_right = self.drones["drone_position_"+str(i)] + np.array([elevation + 2, elevation + 2])
+            top_left = np.clip(top_left,0,self.size-1)
+            bottom_right = np.clip(bottom_right,0,self.size-1)
+            
+            _size = bottom_right - top_left
+            pygame.draw.rect(
+                canvas,
+                (100, 100, 0),
+                pygame.Rect(
+                    top_left * pix_square_size,
+                    _size * pix_square_size,
+                ),
+                width=2,
+            )
+       
+
+                        
+       
 
         if self.render_mode == "human":
             # The following line copies our drawings from `canvas` to the visible window
@@ -308,3 +388,4 @@ class DroneEnv(gym.Env):
         if self.window is not None:
             pygame.display.quit()
             pygame.quit()
+            self.window = None
