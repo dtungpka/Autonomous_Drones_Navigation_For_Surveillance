@@ -185,7 +185,7 @@ class DroneEnv(gym.Env):
     def _move_drone(self,drone:int,action:int):
         is_dead = False
         #Reward for moving drone
-        reward = -0.01
+        reward = 0
         # Map the action (element of {0,1,2,3}) to the direction we walk in
         #if action is 4,5, then change elevation
         if action == 4:
@@ -201,6 +201,14 @@ class DroneEnv(gym.Env):
             )
         if not np.all(self.drones["drone_position_"+str(drone)] == self.base_station):
             self.drones["drone_battery_"+str(drone)] -= 1
+        elif self.drones["drone_battery_"+str(drone)] >= self.max_battery:
+            reward = -.5
+        elif  self.drones["drone_battery_"+str(drone)] < self.max_battery and not is_dead:
+            if self.drones["drone_battery_"+str(drone)] <= self.max_battery//2:
+                reward = .01
+            self.drones["drone_battery_"+str(drone)] = np.clip(self.drones["drone_battery_"+str(drone)] + (self.max_battery//20),0,self.max_battery)
+            #reward for recharging
+            
         if self.drones["drone_battery_"+str(drone)] <= 0:
             is_dead = True
             #reward for dying
@@ -208,10 +216,7 @@ class DroneEnv(gym.Env):
         self.drones["drone_elevation_"+str(drone)] = np.clip(self.drones["drone_elevation_"+str(drone)],0,2)
 
         #if drone is at base station, recharge battery by 5
-        if np.all(self.drones["drone_position_"+str(drone)] == self.base_station) and self.drones["drone_battery_"+str(drone)] < self.max_battery and not is_dead:
-            self.drones["drone_battery_"+str(drone)] = np.clip(self.drones["drone_battery_"+str(drone)] + (self.max_battery//20),0,self.max_battery)
-            #reward for recharging
-            reward = .1
+        
         return is_dead,reward
     def _is_target_waypoint_valid(self,waypoint:np.array):
         #check if waypoint is within grid and not on obstacle
