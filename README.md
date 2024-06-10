@@ -26,8 +26,6 @@ while True:
 
     # Processing:
     obs, reward, terminated, _, info = env.step(action)
-    total_reward += reward
-    
     if terminated:
         break
 
