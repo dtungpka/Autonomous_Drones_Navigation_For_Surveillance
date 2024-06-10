@@ -1,0 +1,11 @@
+
+[project]
+dynamic = ["version"]
+
+name = "DroneNavigationGym-RL"
+description = "Autonomus Drone Navigation for Surveillance Gym Environment"
+authors = [{name="dtungpka", email="duongdoanbach@gmail.com"}]
+license = { file="LICENSE" }
+readme = "README.md"
+
+keywords = ["drone", "navigation", "gym", "reinforcement-learning", "surveillance"]

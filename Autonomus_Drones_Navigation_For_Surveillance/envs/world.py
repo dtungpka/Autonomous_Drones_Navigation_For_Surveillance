@@ -1,5 +1,5 @@
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 import pygame
 import numpy as np
 
@@ -7,7 +7,7 @@ import numpy as np
 class DroneEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 15}
 
-    def __init__(self, render_mode=None, size=100,drones=1,targets=1,obstacles=0,battery=100,seed=None,options=None):
+    def __init__(self, render_mode=None, size=20,drones=1,targets=1,obstacles=0,battery=100,seed=None,options=None):
         self.size = size  # The size of the square grid
         self.window_size = 1024  # The size of the PyGame window
         self.n_drones = drones
@@ -18,39 +18,42 @@ class DroneEnv(gym.Env):
             self.seed(seed)
         self.options = options
 
-        observation_space = {}
-        observation_space_drones = {}
-        for i in range(self.n_drones):
-            observation_space_drones["drone_position_"+str(i)] = spaces.Box(0, size - 1, shape=(2,), dtype=int)
-            observation_space_drones["drone_battery_"+str(i)] = spaces.Box(0, battery, shape=(1,), dtype=int)
-            #drone elevation
-            observation_space_drones["drone_elevation_"+str(i)] = spaces.Box(0, 2, shape=(1,), dtype=int) #view 0: 3x3, view 1: 5x5, view 2: 7x7
-            observation_space_drones["drone_camera_"+str(i)] = spaces.Box(-1, targets, shape=(7,7), dtype=int)
-        observation_space["drones"] = spaces.Dict(observation_space_drones)
+        observation_space_dims = 2 + (7**2 + 2 + 1 + 1) * self.n_drones
+        #inf
+        observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(observation_space_dims,), dtype=int)
+        # observation_space = {}
+        # observation_space_drones = {}
+        # for i in range(self.n_drones):
+        #     observation_space_drones["drone_position_"+str(i)] = spaces.Box(0, size - 1, shape=(2,), dtype=int)
+        #     observation_space_drones["drone_battery_"+str(i)] = spaces.Box(0, battery, shape=(1,), dtype=int)
+        #     #drone elevation
+        #     observation_space_drones["drone_elevation_"+str(i)] = spaces.Box(0, 2, shape=(1,), dtype=int) #view 0: 3x3, view 1: 5x5, view 2: 7x7
+        #     observation_space_drones["drone_camera_"+str(i)] = spaces.Box(-1, targets, shape=(7,7), dtype=int)
+        # observation_space["drones"] = spaces.Dict(observation_space_drones)
         
-        #Agent should not be able to see the target's location
-        observation_space_target = {}
-        for i in range(self.n_targets):
-            observation_space_target["target_"+str(i)] = spaces.Box(2, size - 1, shape=(2,), dtype=int)
-        #observation_space["n_targets"] = spaces.Dict(observation_space_target)
+        # #Agent should not be able to see the target's location
+        # observation_space_target = {}
+        # for i in range(self.n_targets):
+        #     observation_space_target["target_"+str(i)] = spaces.Box(2, size - 1, shape=(2,), dtype=int)
+        # #observation_space["n_targets"] = spaces.Dict(observation_space_target)
 
-        #TBA
-        #for i in range(self.n_obstacles):
-            #observation_space["obstacle_"+str(i)] = spaces.Box(1, size - 1, shape=(2,), dtype=int)
+        # #TBA
+        # #for i in range(self.n_obstacles):
+        #     #observation_space["obstacle_"+str(i)] = spaces.Box(1, size - 1, shape=(2,), dtype=int)
         
-        #Base station at 0,0
-        observation_space["base_station"] = spaces.Box(0, size - 1, shape=(2,), dtype=int)
+        # #Base station at 0,0
+        # observation_space["base_station"] = spaces.Box(0, size - 1, shape=(2,), dtype=int)
 
 
-        # Observations are dictionaries with the agent's and the target's location.
-        # Each location is encoded as an element of {0, ..., `size`}^2, i.e. MultiDiscrete([size, size]).
-        self.observation_space = spaces.Dict(observation_space)
+        # # Observations are dictionaries with the agent's and the target's location.
+        # # Each location is encoded as an element of {0, ..., `size`}^2, i.e. MultiDiscrete([size, size]).
+        # self.observation_space = spaces.Dict(observation_space)
         
 
         # Actions are discrete values in {0,1,2,3}, where 0 corresponds to "right", 1 to "up" etc. 5,6 are elevation up and down
         #with number of drones
         self.action_space = spaces.MultiDiscrete([7]*self.n_drones)
-
+        self.observation_space = observation_space
         """
         The following dictionary maps abstract actions from `self.action_space` to 
         the direction we will walk in if that action is taken.
@@ -81,18 +84,16 @@ class DroneEnv(gym.Env):
         self.clock = None
 
     def _get_obs(self):
-        observation = {
+        #convert to a single array
+        return self.to_array()
+    def to_array(self):
+        observation_json = {
             "base_station": self.base_station,
             "drones": self.drones,
             #"n_targets": self.n_targets,
             #"obstacles": self.obstacles, TBA
             
         }
-        #convert to a single array
-        return observation
-    def to_array(self,observation_json=None):
-        if observation_json is None:
-            observation_json = self._get_obs()
         observation = np.array([])
         for key in observation_json:
             if key == "drones":
