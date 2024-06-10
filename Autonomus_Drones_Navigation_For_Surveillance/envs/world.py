@@ -101,6 +101,8 @@ class DroneEnv(gym.Env):
                     observation = np.concatenate((observation, observation_json[key][drone_key]),axis=None)
             else:
                 observation = np.concatenate((observation, observation_json[key]),axis=None)
+        #to int
+        observation = observation.astype(int)
 
         return observation
 
