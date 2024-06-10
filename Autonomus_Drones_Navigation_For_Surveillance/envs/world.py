@@ -20,29 +20,29 @@ class DroneEnv(gym.Env):
 
         observation_space_dims = 2 + (7**2 + 2 + 1 + 1) * self.n_drones
         #inf
-        observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(observation_space_dims,), dtype=int)
+        observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(observation_space_dims,), dtype=np.int64)
         # observation_space = {}
         # observation_space_drones = {}
         # for i in range(self.n_drones):
-        #     observation_space_drones["drone_position_"+str(i)] = spaces.Box(0, size - 1, shape=(2,), dtype=int)
-        #     observation_space_drones["drone_battery_"+str(i)] = spaces.Box(0, battery, shape=(1,), dtype=int)
+        #     observation_space_drones["drone_position_"+str(i)] = spaces.Box(0, size - 1, shape=(2,), dtype=np.int64)
+        #     observation_space_drones["drone_battery_"+str(i)] = spaces.Box(0, battery, shape=(1,), dtype=np.int64)
         #     #drone elevation
-        #     observation_space_drones["drone_elevation_"+str(i)] = spaces.Box(0, 2, shape=(1,), dtype=int) #view 0: 3x3, view 1: 5x5, view 2: 7x7
-        #     observation_space_drones["drone_camera_"+str(i)] = spaces.Box(-1, targets, shape=(7,7), dtype=int)
+        #     observation_space_drones["drone_elevation_"+str(i)] = spaces.Box(0, 2, shape=(1,), dtype=np.int64) #view 0: 3x3, view 1: 5x5, view 2: 7x7
+        #     observation_space_drones["drone_camera_"+str(i)] = spaces.Box(-1, targets, shape=(7,7), dtype=np.int64)
         # observation_space["drones"] = spaces.Dict(observation_space_drones)
         
         # #Agent should not be able to see the target's location
         # observation_space_target = {}
         # for i in range(self.n_targets):
-        #     observation_space_target["target_"+str(i)] = spaces.Box(2, size - 1, shape=(2,), dtype=int)
+        #     observation_space_target["target_"+str(i)] = spaces.Box(2, size - 1, shape=(2,), dtype=np.int64)
         # #observation_space["n_targets"] = spaces.Dict(observation_space_target)
 
         # #TBA
         # #for i in range(self.n_obstacles):
-        #     #observation_space["obstacle_"+str(i)] = spaces.Box(1, size - 1, shape=(2,), dtype=int)
+        #     #observation_space["obstacle_"+str(i)] = spaces.Box(1, size - 1, shape=(2,), dtype=np.int64)
         
         # #Base station at 0,0
-        # observation_space["base_station"] = spaces.Box(0, size - 1, shape=(2,), dtype=int)
+        # observation_space["base_station"] = spaces.Box(0, size - 1, shape=(2,), dtype=np.int64)
 
 
         # # Observations are dictionaries with the agent's and the target's location.
@@ -102,7 +102,7 @@ class DroneEnv(gym.Env):
             else:
                 observation = np.concatenate((observation, observation_json[key]),axis=None)
         #to int
-        observation = observation.astype(int)
+        observation = observation.astype(np.int64)
 
         return observation
 
@@ -128,15 +128,15 @@ class DroneEnv(gym.Env):
             self.drones["drone_position_"+str(i)] = np.array([0,0])
             self.drones["drone_battery_"+str(i)] = np.array(self.max_battery)
             self.drones["drone_elevation_"+str(i)] = np.array(0)
-            self.drones["drone_camera_"+str(i)] = np.zeros((7,7),dtype=int)
+            self.drones["drone_camera_"+str(i)] = np.zeros((7,7),dtype=np.int64)
         
         self.targets = {}
         for i in range(self.n_targets):
-            self.targets["target_"+str(i)] = self.np_random.integers(1, self.size-1, size=2, dtype=int)
+            self.targets["target_"+str(i)] = self.np_random.integers(1, self.size-1, size=2, dtype=np.int64)
 
         self.obstacles = {}
         for i in range(self.n_obstacles):
-            self.obstacles["obstacle_"+str(i)] = self.np_random.integers(1, self.size-1, size=2, dtype=int)
+            self.obstacles["obstacle_"+str(i)] = self.np_random.integers(1, self.size-1, size=2, dtype=np.int64)
 
         self.base_station = np.array([0,0])
 
@@ -158,7 +158,7 @@ class DroneEnv(gym.Env):
         
         position = self.drones["drone_position_"+str(drone)]
         elevation = self.drones["drone_elevation_"+str(drone)]
-        camera = np.zeros((7,7),dtype=int)
+        camera = np.zeros((7,7),dtype=np.int64)
         found_prob = 1 - elevation_penalty[elevation]
         top_left = position - np.array([elevation + 1, elevation + 1])
         bottom_right = position + np.array([elevation + 1, elevation + 1])
