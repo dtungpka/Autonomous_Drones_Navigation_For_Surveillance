@@ -18,7 +18,7 @@ class DroneEnv(gym.Env):
             self.seed(seed)
         self.options = options
 
-        observation_space_dims = 2 + (7**2 + 2 + 1 + 1) * self.n_drones
+        observation_space_dims = 2 + (7**2 + 2 + 1 + 1) * self.n_drones + 2 * self.n_targets
         #inf
         observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(observation_space_dims,), dtype=np.int64)
         # observation_space = {}
@@ -52,7 +52,7 @@ class DroneEnv(gym.Env):
 
         # Actions are discrete values in {0,1,2,3}, where 0 corresponds to "right", 1 to "up" etc. 5,6 are elevation up and down
         #with number of drones
-        self.action_space = spaces.MultiDiscrete([7]*self.n_drones)
+        self.action_space = spaces.MultiDiscrete([6]*self.n_drones)
         self.observation_space = observation_space
         """
         The following dictionary maps abstract actions from `self.action_space` to 
@@ -89,18 +89,21 @@ class DroneEnv(gym.Env):
     def to_array(self):
         observation_json = {
             "base_station": self.base_station,
+            'last_seen': self.last_seen,
             "drones": self.drones,
+            
             #"n_targets": self.n_targets,
             #"obstacles": self.obstacles, TBA
             
         }
         observation = np.array([])
         for key in observation_json:
-            if key == "drones":
+            if key == "drones" or key == "last_seen":
                 for drone_key in observation_json[key]:
                     observation = np.concatenate((observation, observation_json[key][drone_key]),axis=None)
             else:
                 observation = np.concatenate((observation, observation_json[key]),axis=None)
+                
         #to int
         observation = observation.astype(np.int64)
 
@@ -112,7 +115,9 @@ class DroneEnv(gym.Env):
     def _get_info(self):
         return {
             "base_station": self.base_station,
+            'last_seen': self.last_seen,
             "drones": self.drones,
+            
             #"n_targets": self.n_targets,
             #"obstacles": self.obstacles, TBA
             
@@ -123,16 +128,18 @@ class DroneEnv(gym.Env):
         super().reset(seed=seed)
         self.last_target_found = {}
         self.drones = {}
+        self.last_seen = {}
         for i in range(self.n_drones):
             #always start at base station
             self.drones["drone_position_"+str(i)] = np.array([0,0])
-            self.drones["drone_battery_"+str(i)] = np.array(self.max_battery)
             self.drones["drone_elevation_"+str(i)] = np.array(0)
+            self.drones["drone_battery_"+str(i)] = np.array(self.max_battery)
             self.drones["drone_camera_"+str(i)] = np.zeros((7,7),dtype=np.int64)
         
         self.targets = {}
         for i in range(self.n_targets):
             self.targets["target_"+str(i)] = self.np_random.integers(1, self.size-1, size=2, dtype=np.int64)
+            self.last_seen["target_"+str(i)] = self.targets["target_"+str(i)].copy()
 
         self.obstacles = {}
         for i in range(self.n_obstacles):
@@ -140,7 +147,8 @@ class DroneEnv(gym.Env):
 
         self.base_station = np.array([0,0])
 
-
+        for i in range(self.n_drones):
+            self._update_camera(i)
         self.targets_found = {}
 
         observation = self._get_obs()
@@ -154,7 +162,7 @@ class DroneEnv(gym.Env):
         #from list of spaces.MultiDiscrete([6]*self.drones) to list of np.array([1, 0])
         return [self._action_to_direction[action] for action in actions]
     def _update_camera(self,drone:int):
-        elevation_penalty = [0,0.5,0.75]
+        elevation_penalty = [0,0.25,0.5]
 
         position = self.drones["drone_position_"+str(drone)]
         elevation = self.drones["drone_elevation_"+str(drone)]
@@ -162,10 +170,31 @@ class DroneEnv(gym.Env):
         #set outering of camera to -2 according to elevation
         camera_view = np.zeros(( 3 + 2 * elevation, 3 + 2 * elevation),dtype=np.int64)
         rev_elevation = 2 - elevation
-        camera[rev_elevation:7-rev_elevation,rev_elevation:7-rev_elevation] = camera_view
+        
         found_prob = 1 - elevation_penalty[elevation]
-        top_left = position - np.array([elevation + 1, elevation + 1])
-        bottom_right = position + np.array([elevation + 1, elevation + 1])
+        _top_left = position - np.array([elevation + 1, elevation + 1])
+        _bottom_right = position + np.array([elevation + 1, elevation + 1])
+
+        #clip to ensure within grid
+        top_left = np.clip(_top_left,0,self.size-1)
+        bottom_right = np.clip(_bottom_right,0,self.size-1)
+
+        #if a part of the camera is out of bounds, set to -3
+        top_left_out_of_bounds = -(_top_left - top_left)
+        bottom_right_out_of_bounds = -(_bottom_right - bottom_right)
+        if top_left_out_of_bounds[1] > 0:
+            camera_view[:top_left_out_of_bounds[1],:] = -3
+        if top_left_out_of_bounds[0] > 0:
+            camera_view[:,:top_left_out_of_bounds[0]] = -3
+        if bottom_right_out_of_bounds[1] > 0:
+            camera_view[-bottom_right_out_of_bounds[1]:,:] = -3
+        if bottom_right_out_of_bounds[0] > 0:
+            camera_view[:,-bottom_right_out_of_bounds[0]:] = -3
+
+        camera[rev_elevation:7-rev_elevation,rev_elevation:7-rev_elevation] = camera_view
+            
+
+
 
         #for each target, if in view, add to camera as (target_id + 1) in their position
         for i in range(self.n_targets):
@@ -174,38 +203,45 @@ class DroneEnv(gym.Env):
                 if self.np_random.random() > found_prob:
                     continue
                 else:
-                    pos = self.targets["target_"+str(i)] - top_left
-                    camera[pos[1],pos[0]] = i + 1
+                    pos = self.targets["target_"+str(i)] - position
+                    camera[3 + pos[1],3 + pos[0]] = i + 1
                     #calculate reward based on distance from middle of view
                     distance = np.linalg.norm(self.drones["drone_position_"+str(drone)] - self.targets["target_"+str(i)])
                     #more reward for closer targets
-                    reward = 1 - distance/(2*np.sqrt(2))
+                    reward = np.exp((1 - distance/(7*np.sqrt(2)))) * 0.75
+                    #print(f"Reward for drone {drone} finding target {i}: {reward} - distance: {distance}")
                     if i not in self.targets_found:
                         self.targets_found[i] = reward
                     elif reward > self.targets_found[i]:
                         self.targets_found[i] = reward
+                    #add to last seen
+                    self.last_seen["target_"+str(i)] = self.targets["target_"+str(i)].copy()
                     #Remember to reset target found each step
         #for each obstacle, if in view, add to camera as -1 in their position
         for i in range(self.n_obstacles):
             if np.all(top_left <= self.obstacles["obstacle_"+str(i)]) and np.all(self.obstacles["obstacle_"+str(i)] <= bottom_right):
-                if self.np_random.random() > found_prob:
-                    continue
-                pos = self.obstacles["obstacle_"+str(i)] - top_left
-                camera[pos[1],pos[0]] = -1
+                pos = self.obstacles["obstacle_"+str(i)] - position
+                camera[3 + pos[1],3 + pos[0]] = -1
+        #for base station, if in view, add to camera as 2 in their position
+        if np.all(top_left <= self.base_station) and np.all(self.base_station <= bottom_right):
+            pos = self.base_station - position
+            camera[3 + pos[1],3 + pos[0]] = 2
         self.drones["drone_camera_"+str(drone)] = camera
         return camera
     def _move_drone(self,drone:int,action:int):
         is_dead = False
         #Reward for moving drone
-        reward = 0.001
+        reward = 0
         # Map the action (element of {0,1,2,3}) to the direction we walk in
         #if action is 4,5, then change elevation
+        prev_position = self.drones["drone_position_"+str(drone)].copy()
+        prev_elevation = self.drones["drone_elevation_"+str(drone)].copy()
         if action == 4:
             self.drones["drone_elevation_"+str(drone)] += 1
         elif action == 5:
             self.drones["drone_elevation_"+str(drone)] -= 1
         elif action == 6:
-            pass
+            reward = 0
         else:
             direction = self._action_to_direction[action]
             self.drones["drone_position_"+str(drone)] = np.clip(
@@ -217,23 +253,27 @@ class DroneEnv(gym.Env):
                 #distance from base station
                 distance = np.linalg.norm(self.drones["drone_position_"+str(drone)] - self.base_station)
                 #reward for moving closer to base station
-                reward = 1 - distance/(np.linalg.norm(np.array([self.size-1,self.size-1])))
+                reward = (1 - distance/(np.linalg.norm(np.array([self.size-1,self.size-1]))))*3
         elif self.drones["drone_battery_"+str(drone)] >= self.max_battery // 1.2 and action != 6:
             reward = -.5
         elif  self.drones["drone_battery_"+str(drone)] < self.max_battery and not is_dead:
             if self.drones["drone_battery_"+str(drone)] <= self.max_battery//2:
                 
-                reward = .1
+                reward = 10
             self.drones["drone_battery_"+str(drone)] = np.clip(self.drones["drone_battery_"+str(drone)] + (self.max_battery//10),0,self.max_battery)
             #reward for recharging
             
         if self.drones["drone_battery_"+str(drone)] <= 0:
             is_dead = True
             #reward for dying
-            reward = -100
+            reward = -10*self.size
         self.drones["drone_elevation_"+str(drone)] = np.clip(self.drones["drone_elevation_"+str(drone)],0,2)
 
         #if drone is at base station, recharge battery by 1/10 of max battery
+        #if the drone not moving, reward is 0
+        if np.all(prev_position == self.drones["drone_position_"+str(drone)]) and prev_elevation == self.drones["drone_elevation_"+str(drone)]:
+            if action != 6:
+                reward -= 1 #invalid action
         
         return is_dead,reward
     def _is_target_waypoint_valid(self,waypoint:np.array):
@@ -279,7 +319,7 @@ class DroneEnv(gym.Env):
                 terminated = True
                 break
         self.last_target_found = self.targets_found.copy() if len(self.targets_found) > len(self.last_target_found) else self.last_target_found
-        total_reward += sum(self.targets_found.values()) * 10
+        total_reward += sum(self.targets_found.values()) #reward for finding target
 
         #penalty for each time lost track of target
         target_lost = len(self.last_target_found) - len(self.targets_found)
