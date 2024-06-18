@@ -1,9 +1,8 @@
-
 [project]
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 
 name = "DroneNavigationGym-RL"
-description = "Autonomus Drone Navigation for Surveillance Gym Environment"
+description = "Autonomous Drone Navigation for Surveillance Gym Environment"
 authors = [{name="dtungpka", email="duongdoanbach@gmail.com"}]
 license = { file="LICENSE" }
 readme = "README.md"
@@ -11,4 +10,5 @@ readme = "README.md"
 keywords = ["drone", "navigation", "gym", "reinforcement-learning", "surveillance"]
 
 [project.urls]
-Homepage = "https://github.com/dtungpka/Autonomus_Drones_Navigation_For_Surveillance"
+Homepage = "https://github.com/dtungpka/Autonomous_Drones_Navigation_For_Surveillance"
+

@@ -158,7 +158,11 @@ class DroneEnv(gym.Env):
         
         position = self.drones["drone_position_"+str(drone)]
         elevation = self.drones["drone_elevation_"+str(drone)]
-        camera = np.zeros((7,7),dtype=np.int64)
+        camera = np.ones((7,7),dtype=np.int64) * -2
+        #set outering of camera to -2 according to elevation
+        camera_view = np.zeros(( 3 + 2 * elevation, 3 + 2 * elevation),dtype=np.int64)
+        rev_elevation = 2 - elevation
+        camera[rev_elevation:7-rev_elevation,rev_elevation:7-rev_elevation] = camera_view
         found_prob = 1 - elevation_penalty[elevation]
         top_left = position - np.array([elevation + 1, elevation + 1])
         bottom_right = position + np.array([elevation + 1, elevation + 1])
@@ -191,7 +195,7 @@ class DroneEnv(gym.Env):
     def _move_drone(self,drone:int,action:int):
         is_dead = False
         #Reward for moving drone
-        reward = 0.01
+        reward = 0.001
         # Map the action (element of {0,1,2,3}) to the direction we walk in
         #if action is 4,5, then change elevation
         if action == 4:
@@ -211,8 +215,8 @@ class DroneEnv(gym.Env):
             reward = -.5
         elif  self.drones["drone_battery_"+str(drone)] < self.max_battery and not is_dead:
             if self.drones["drone_battery_"+str(drone)] <= self.max_battery//2:
-                pass
-                #reward = .0
+                
+                reward = .1
             self.drones["drone_battery_"+str(drone)] = np.clip(self.drones["drone_battery_"+str(drone)] + (self.max_battery//10),0,self.max_battery)
             #reward for recharging
             
@@ -244,7 +248,7 @@ class DroneEnv(gym.Env):
         while True:
             new_position = self.targets["target_"+str(target)].copy()
             direction = self.np_random.integers(0,4)
-            steps = self.np_random.integers(0,3)
+            steps = self.np_random.integers(0,2)
             new_position += self._action_to_direction[direction] * steps
             if self._is_target_waypoint_valid(new_position):
                 break
