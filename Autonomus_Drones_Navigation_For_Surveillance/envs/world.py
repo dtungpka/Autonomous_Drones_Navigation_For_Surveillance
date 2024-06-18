@@ -155,7 +155,7 @@ class DroneEnv(gym.Env):
         return [self._action_to_direction[action] for action in actions]
     def _update_camera(self,drone:int):
         elevation_penalty = [0,0.5,0.75]
-        
+
         position = self.drones["drone_position_"+str(drone)]
         elevation = self.drones["drone_elevation_"+str(drone)]
         camera = np.ones((7,7),dtype=np.int64) * -2
@@ -188,6 +188,8 @@ class DroneEnv(gym.Env):
         #for each obstacle, if in view, add to camera as -1 in their position
         for i in range(self.n_obstacles):
             if np.all(top_left <= self.obstacles["obstacle_"+str(i)]) and np.all(self.obstacles["obstacle_"+str(i)] <= bottom_right):
+                if self.np_random.random() > found_prob:
+                    continue
                 pos = self.obstacles["obstacle_"+str(i)] - top_left
                 camera[pos[1],pos[0]] = -1
         self.drones["drone_camera_"+str(drone)] = camera
@@ -211,6 +213,11 @@ class DroneEnv(gym.Env):
             )
         if not np.all(self.drones["drone_position_"+str(drone)] == self.base_station):
             self.drones["drone_battery_"+str(drone)] -= 1
+            if self.drones["drone_battery_"+str(drone)] < self.max_battery // 1.2:
+                #distance from base station
+                distance = np.linalg.norm(self.drones["drone_position_"+str(drone)] - self.base_station)
+                #reward for moving closer to base station
+                reward = 1 - distance/(np.linalg.norm(np.array([self.size-1,self.size-1])))
         elif self.drones["drone_battery_"+str(drone)] >= self.max_battery // 1.2 and action != 6:
             reward = -.5
         elif  self.drones["drone_battery_"+str(drone)] < self.max_battery and not is_dead:
@@ -244,12 +251,13 @@ class DroneEnv(gym.Env):
         # 3. The target can go in one direction with 0,1,2 steps (speed)
 
         # Randomly choose a direction to move in
-        
-        while True:
+        max_tries = 10
+        while max_tries > 0:
             new_position = self.targets["target_"+str(target)].copy()
             direction = self.np_random.integers(0,4)
             steps = self.np_random.integers(0,2)
             new_position += self._action_to_direction[direction] * steps
+            max_tries -= 1
             if self._is_target_waypoint_valid(new_position):
                 break
             #print(f"Invalid target waypoint {new_position}")
@@ -271,7 +279,7 @@ class DroneEnv(gym.Env):
                 terminated = True
                 break
         self.last_target_found = self.targets_found.copy() if len(self.targets_found) > len(self.last_target_found) else self.last_target_found
-        total_reward += sum(self.targets_found.values())
+        total_reward += sum(self.targets_found.values()) * 10
 
         #penalty for each time lost track of target
         target_lost = len(self.last_target_found) - len(self.targets_found)
